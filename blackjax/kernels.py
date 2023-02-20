@@ -1126,7 +1126,7 @@ class elliptical_slice:
     def __new__(cls, loglikelihood_fn: Callable, mean: Array, cov: Array, N=1, D=1, nu=1, shared_hyperparameters=True) \
             -> MCMCSamplingAlgorithm:
 
-        step = cls.kernel(cov, mean, N, D, nu, shared_hyperparameters)
+        step = cls.kernel(cov, mean, shared_hyperparameters, N, D, nu)
 
         def init_fn(position: PyTree):
             return cls.init(position, loglikelihood_fn)
