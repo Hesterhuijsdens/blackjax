@@ -16,6 +16,7 @@ from typing import Callable, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
+import jax.random as jrnd
 
 from blackjax.types import Array, PRNGKey, PyTree
 from blackjax.util import generate_gaussian_noise
