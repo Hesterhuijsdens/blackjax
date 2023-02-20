@@ -108,11 +108,11 @@ def kernel(cov_matrix: Array, mean: Array, shared_hyperparameters=True, N=1, D=1
         keys = jrnd.split(rng_key, nu * D)
         u = jnp.reshape(position, (nu * D, N))
 
-        if ndim == 2 and shared_theta:
+        if ndim == 2 and shared_hyperparameters:
             res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, None))(keys, u, cov_matrix_sqrt)
             return jnp.reshape(res, (nu * D * N), order='F')
 
-        elif ndim == 3 and not shared_theta:
+        elif ndim == 3 and not shared_hyperparameters:
             res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, 0))(keys, u, cov_matrix_sqrt)
             return jnp.reshape(res, (nu * D * N), order='F')
         else:
