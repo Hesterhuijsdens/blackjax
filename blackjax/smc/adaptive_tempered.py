@@ -25,15 +25,8 @@ from blackjax.types import PRNGKey
 __all__ = ["kernel"]
 
 
-def kernel(
-    logprior_fn: Callable,
-    loglikelihood_fn: Callable,
-    mcmc_step_fn: Callable,
-    mcmc_init_fn: Callable,
-    resampling_fn: Callable,
-    target_ess: float,
-    root_solver: Callable = solver.dichotomy,
-) -> Callable:
+def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Callable, mcmc_init_fn: Callable,
+           resampling_fn: Callable, target_ess: float, root_solver: Callable = solver.dichotomy) -> Callable:
     r"""Build a Tempered SMC step using an adaptive schedule.
 
     Parameters

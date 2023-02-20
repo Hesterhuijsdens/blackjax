@@ -66,7 +66,7 @@ def init(position: PyTree, logdensity_fn: Callable):
     return EllipSliceState(position, logdensity)
 
 
-def kernel(cov_matrix: Array, mean: Array):
+def kernel(cov_matrix: Array, mean: Array, shared_hyperparameters=True, N=1, D=1, nu=1):
     """Build an Elliptical Slice sampling kernel [1]_.
 
     Parameters
@@ -92,27 +92,34 @@ def kernel(cov_matrix: Array, mean: Array):
 
     if ndim == 1:  # diagonal covariance matrix
         cov_matrix_sqrt = jnp.sqrt(cov_matrix)
-
-    elif ndim == 2:
+    elif ndim == 2 and shared_hyperparameters:
         cov_matrix_sqrt = jax.lax.linalg.cholesky(cov_matrix)
-
+    elif ndim == 3 and not shared_hyperparameters:
+        cov_matrix_sqrt = jax.vmap(jax.lax.linalg.cholesky, in_axes=0)(cov_matrix)
     else:
-        raise ValueError(
-            "The mass matrix has the wrong number of dimensions:"
-            f" expected 1 or 2, got {jnp.ndim(cov_matrix)}."  # type: ignore[arg-type]
-        )
+        raise ValueError('The mass matrix has the wrong number of dimensions: expected 1 or 2 (with shared theta), '
+                         'or 3 (without shared theta).')
 
     def momentum_generator(rng_key, position):
-        return generate_gaussian_noise(rng_key, position, mean, cov_matrix_sqrt)
+        def generate_gaussian_noise_latent(key, u_i, cov):
+            return generate_gaussian_noise(key, u_i, jnp.zeros(N), cov)
 
-    def one_step(
-        rng_key: PRNGKey,
-        state: EllipSliceState,
-        logdensity_fn: Callable,
-    ) -> Tuple[EllipSliceState, EllipSliceInfo]:
-        proposal_generator = elliptical_proposal(
-            logdensity_fn, momentum_generator, mean
-        )
+        keys = jrnd.split(rng_key, nu * D)
+        u = jnp.reshape(position, (nu * D, N))
+
+        if ndim == 2 and shared_theta:
+            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, None))(keys, u, cov_matrix_sqrt)
+            return jnp.reshape(res, (nu * D * N), order='F')
+
+        elif ndim == 3 and not shared_theta:
+            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, 0))(keys, u, cov_matrix_sqrt)
+            return jnp.reshape(res, (nu * D * N), order='F')
+        else:
+            return generate_gaussian_noise(rng_key, position, mean, cov_matrix_sqrt)
+
+    def one_step(rng_key: PRNGKey, state: EllipSliceState, logdensity_fn: Callable) \
+            -> Tuple[EllipSliceState, EllipSliceInfo]:
+        proposal_generator = elliptical_proposal(logdensity_fn, momentum_generator, mean)
         return proposal_generator(rng_key, state)
 
     return one_step

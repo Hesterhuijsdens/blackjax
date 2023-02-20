@@ -44,13 +44,8 @@ def init(particles: PyTree):
     return TemperedSMCState(particles, weights, 0.0)
 
 
-def kernel(
-    logprior_fn: Callable,
-    loglikelihood_fn: Callable,
-    mcmc_step_fn: Callable,
-    mcmc_init_fn: Callable,
-    resampling_fn: Callable,
-) -> Callable:
+def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Callable, mcmc_init_fn: Callable,
+           resampling_fn: Callable) -> Callable:
     """Build the base Tempered SMC kernel.
 
     Tempered SMC uses tempering to sample from a distribution given by
@@ -88,13 +83,8 @@ def kernel(
 
     """
 
-    def one_step(
-        rng_key: PRNGKey,
-        state: TemperedSMCState,
-        num_mcmc_steps: int,
-        lmbda: float,
-        mcmc_parameters: dict,
-    ) -> Tuple[TemperedSMCState, smc.base.SMCInfo]:
+    def one_step(rng_key: PRNGKey, state: TemperedSMCState, num_mcmc_steps: int, lmbda: float, mcmc_parameters: dict) \
+            -> Tuple[TemperedSMCState, smc.base.SMCInfo]:
         """Move the particles one step using the Tempered SMC algorithm.
 
         Parameters
@@ -114,7 +104,8 @@ def kernel(
             Additional information on the SMC step
 
         """
-        delta = lmbda - state.lmbda
+        new_lmbda = state.lmbda
+        delta = lmbda - new_lmbda
 
         def log_weights_fn(position: PyTree) -> float:
             return delta * loglikelihood_fn(position)
@@ -128,9 +119,7 @@ def kernel(
             state = mcmc_init_fn(position, tempered_logposterior_fn)
 
             def body_fn(state, rng_key):
-                new_state, info = mcmc_step_fn(
-                    rng_key, state, tempered_logposterior_fn, **mcmc_parameters
-                )
+                new_state, info = mcmc_step_fn(rng_key, state, loglikelihood_fn, new_lmbda, **mcmc_parameters)
                 return new_state, info
 
             keys = jax.random.split(rng_key, num_mcmc_steps)
@@ -144,9 +133,7 @@ def kernel(
             jax.vmap(log_weights_fn),
             resampling_fn,
         )
-        tempered_state = TemperedSMCState(
-            smc_state.particles, smc_state.weights, state.lmbda + delta
-        )
+        tempered_state = TemperedSMCState(smc_state.particles, smc_state.weights, state.lmbda + delta)
 
         return tempered_state, info
 

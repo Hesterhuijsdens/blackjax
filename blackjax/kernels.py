@@ -1123,24 +1123,16 @@ class elliptical_slice:
     init = staticmethod(mcmc.elliptical_slice.init)
     kernel = staticmethod(mcmc.elliptical_slice.kernel)
 
-    def __new__(  # type: ignore[misc]
-        cls,
-        loglikelihood_fn: Callable,
-        *,
-        mean: Array,
-        cov: Array,
-    ) -> MCMCSamplingAlgorithm:
-        step = cls.kernel(cov, mean)
+    def __new__(cls, loglikelihood_fn: Callable, mean: Array, cov: Array, N=1, D=1, nu=1, shared_hyperparameters=True) \
+            -> MCMCSamplingAlgorithm:
+
+        step = cls.kernel(cov, mean, N, D, nu, shared_hyperparameters)
 
         def init_fn(position: PyTree):
             return cls.init(position, loglikelihood_fn)
 
         def step_fn(rng_key: PRNGKey, state):
-            return step(
-                rng_key,
-                state,
-                loglikelihood_fn,
-            )
+            return step(rng_key, state, loglikelihood_fn)
 
         return MCMCSamplingAlgorithm(init_fn, step_fn)
 
