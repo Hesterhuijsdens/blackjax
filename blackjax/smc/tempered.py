@@ -11,13 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Callable, NamedTuple, Tuple
-
+from typing import Any, Callable, NamedTuple, Tuple, Optional, Hashable, Union, Sequence
 import jax
 import jax.numpy as jnp
-
+from math import ceil
 import blackjax.smc as smc
-from blackjax.smc.base import SMCState
+from blackjax.smc.base import SMCState, SMCInfo
 from blackjax.types import PRNGKey, PyTree
 
 __all__ = ["TemperedSMCState", "init", "kernel"]
@@ -160,3 +159,99 @@ def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Call
         return tempered_state, info
 
     return one_step
+
+
+def get_batch(i, data, batch_size):
+    """
+    This function generates a batch (batch number i) from the given data.
+    """
+
+    # For dictionaries, we need to divide all dictionary values in batches:
+    if type(data) == dict:
+        batch_dict = {}
+        for key, value in data.items():
+            if type(value) == dict:
+                subdict = {}
+                for subkey, subvalue in value.items():
+                    subdict[subkey] = jax.lax.dynamic_slice(subvalue, (i*batch_size, 0), (batch_size,
+                                                                                          subvalue.shape[1]))
+                batch_dict[key] = subdict
+            else:
+                batch_dict[key] = jax.lax.dynamic_slice(value, (i*batch_size, 0), (batch_size, value.shape[1]))
+        return batch_dict
+    else:
+        # We assume the data is of type DeviceArray:
+        return jax.lax.dynamic_slice(data, (i*batch_size, 0), (batch_size, data.shape[1]))
+
+
+def combine_dictionaries(dict1, dict2):
+    """
+    This function combines two dictionaries, with the same keys, into a single dictionary.
+    """
+    combined = {}
+    for key, value in dict1.items():
+        if type(dict1[key]) == dict:
+            subdict = {}
+            for key2, value2 in dict1[key].items():
+                subdict[key2] = jnp.concatenate([value2, dict2[key][key2]], axis=0)
+            combined[key] = subdict
+        else:
+            combined[key] = jnp.concatenate([value, dict2[key]], axis=0)
+    return combined
+
+
+def combine_batches(batches):
+    """
+    This function combines all batches based on their data type.
+    """
+
+    n_batches = len(batches)
+    if type(batches[0]) == dict:
+        outputs = combine_dictionaries(batches[0], batches[1])
+        for i in range(2, n_batches):
+            outputs = combine_dictionaries(outputs, batches[i])
+    elif type(batches[0]) == tuple:
+        output_1 = combine_dictionaries(batches[0][0], batches[1][0])
+        for i in range(2, n_batches):
+            output_1 = combine_dictionaries(output_1, batches[i][0])
+        outputs = (output_1, 0)
+    else:
+        raise Exception('I have not implemented the concatenation of batches of type ' + str(type) + ' yet.')
+    return outputs
+
+
+def sequential_vmap(f: Callable, in_axes: Union[int, Sequence[Any]] = 0, out_axes: Any = 0, batch_size: int = 100,
+                    axis_name: Optional[Hashable] = None, axis_size: Optional[int] = None,
+                    spmd_axis_name: Optional[Hashable] = None) -> Callable:
+    """
+    A sequential version of vmap from Jax (https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html), which
+    divides the data in batches. This was implemented to avoid OOM issues.
+    """
+
+    def sequential_vmap_f(*args):
+        # Compute the number of batches for the given data size and batch size:
+        n = args[in_axes.index(0)].shape[0]
+        n_batches = ceil(n / batch_size)
+
+        batch_outputs = []
+        for i in range(n_batches):
+            batched_args = ()
+
+            # Check for every vmap argument whether we want to divide the argument in batches, and get a batch:
+            for d in range(len(args)):
+                if in_axes[d] is not None:
+                    batch = get_batch(i, args[d], batch_size)
+                    batched_args += (batch,)
+                else:
+                    batched_args += (args[d],)
+
+            # Apply the current batch to the function:
+            batch_outputs += [
+                jax.vmap(f, in_axes=in_axes, out_axes=out_axes, axis_name=axis_name, axis_size=axis_size,
+                         spmd_axis_name=spmd_axis_name)(*batched_args)]
+
+        # Combine all batch outputs:
+        outputs = combine_batches(batch_outputs)
+        return outputs
+
+    return sequential_vmap_f
