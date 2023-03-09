@@ -87,9 +87,10 @@ def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Call
         state: tempered.TemperedSMCState,
         num_mcmc_steps: int,
         mcmc_parameters: dict,
+        batch_size: int
     ) -> Tuple[tempered.TemperedSMCState, base.SMCInfo]:
         delta = compute_delta(state)
         lmbda = delta + state.lmbda
-        return kernel(rng_key, state, num_mcmc_steps, lmbda, mcmc_parameters)
+        return kernel(rng_key, state, num_mcmc_steps, lmbda, mcmc_parameters, batch_size)
 
     return one_step

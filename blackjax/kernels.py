@@ -74,6 +74,7 @@ class adaptive_tempered_smc:
         target_ess: float,
         root_solver: Callable = smc.solver.dichotomy,
         num_mcmc_steps: int = 10,
+        batch_size: int = None
     ) -> MCMCSamplingAlgorithm:
 
         step = cls.kernel(
@@ -95,6 +96,7 @@ class adaptive_tempered_smc:
                 state,
                 num_mcmc_steps,
                 mcmc_parameters,
+                batch_size
             )
 
         return MCMCSamplingAlgorithm(init_fn, step_fn)
@@ -122,6 +124,7 @@ class tempered_smc:
         mcmc_parameters: Dict,
         resampling_fn: Callable,
         num_mcmc_steps: int = 10,
+        batch_size: int = None
     ) -> MCMCSamplingAlgorithm:
 
         step = cls.kernel(
@@ -142,6 +145,7 @@ class tempered_smc:
                 num_mcmc_steps,
                 lmbda,
                 mcmc_parameters,
+                batch_size
             )
 
         return MCMCSamplingAlgorithm(init_fn, step_fn)  # type: ignore[arg-type]
@@ -1135,6 +1139,13 @@ class elliptical_slice:
             return step(rng_key, state, loglikelihood_fn)
 
         return MCMCSamplingAlgorithm(init_fn, step_fn)
+
+
+class toeplitz_elliptical_slice(elliptical_slice):
+    """
+    ...
+    """
+    kernel = staticmethod(mcmc.toeplitz_elliptical_slice.kernel)
 
 
 class ghmc:

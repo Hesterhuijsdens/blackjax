@@ -83,8 +83,8 @@ def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Call
 
     """
 
-    def one_step(rng_key: PRNGKey, state: TemperedSMCState, num_mcmc_steps: int, lmbda: float, mcmc_parameters: dict) \
-            -> Tuple[TemperedSMCState, smc.base.SMCInfo]:
+    def one_step(rng_key: PRNGKey, state: TemperedSMCState, num_mcmc_steps: int, lmbda: float, mcmc_parameters: dict,
+                 batch_size: int) -> Tuple[TemperedSMCState, smc.base.SMCInfo]:
         """Move the particles one step using the Tempered SMC algorithm.
 
         Parameters
@@ -126,15 +126,37 @@ def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Call
             last_state, info = jax.lax.scan(body_fn, state, keys)
             return last_state.position, info
 
-        smc_state, info = smc.base.step(
-            rng_key,
-            SMCState(state.particles, state.weights),
-            jax.vmap(mcmc_kernel),
-            jax.vmap(log_weights_fn),
-            resampling_fn,
-        )
-        tempered_state = TemperedSMCState(smc_state.particles, smc_state.weights, state.lmbda + delta)
+        def base_smc_step(rng_key: PRNGKey, state: SMCState, update_fn: Callable, weigh_fn: Callable,
+                          resample_fn: Callable, num_resampled: Optional[int] = None) -> Tuple[SMCState, SMCInfo]:
+            """
+            ...
+            """
+            updating_key, resampling_key = jax.random.split(rng_key, 2)
+            num_particles = state.weights.shape[0]
+            if num_resampled is None:
+                num_resampled = num_particles
+            resampling_idx = resample_fn(resampling_key, state.weights, num_resampled)
+            particles = jax.tree_map(lambda x: x[resampling_idx], state.particles)
+            keys = jax.random.split(updating_key, num_resampled)
 
+            particles, update_info = update_fn(keys, particles)
+
+            log_weights = weigh_fn(particles)
+            logsum_weights = jax.scipy.special.logsumexp(log_weights)
+            normalizing_constant = logsum_weights - jnp.log(num_particles)
+            weights = jnp.exp(log_weights - logsum_weights)
+
+            return SMCState(particles, weights), SMCInfo(resampling_idx, normalizing_constant, update_info)
+
+        if batch_size is None:
+            mcmc_kernel_fn = jax.vmap(mcmc_kernel)
+        else:
+            mcmc_kernel_fn = sequential_vmap(mcmc_kernel, in_axes=(0, 0), batch_size=batch_size)
+
+        smc_state, info = base_smc_step(rng_key, SMCState(state.particles, state.weights), mcmc_kernel_fn,
+                                        jax.vmap(log_weights_fn), resampling_fn)
+
+        tempered_state = TemperedSMCState(smc_state.particles, smc_state.weights, state.lmbda + delta)
         return tempered_state, info
 
     return one_step
