@@ -67,7 +67,7 @@ def init(position: PyTree, logdensity_fn: Callable):
     return EllipSliceState(position, logdensity)
 
 
-def kernel(cov_matrix: Array, mean: Array, shared_hyperparameters=True, N=1, D=1, nu=1):
+def kernel(cov_matrix: Array, mean: Array, shared_hyperparameters=True, D=1, nu=1):
     """Build an Elliptical Slice sampling kernel [1]_.
 
     Parameters
@@ -90,6 +90,7 @@ def kernel(cov_matrix: Array, mean: Array, shared_hyperparameters=True, N=1, D=1
 
     """
     ndim = jnp.ndim(cov_matrix)  # type: ignore[arg-type]
+    N = cov_matrix.shape[-1] # Set number of observations.
 
     if ndim == 1:  # diagonal covariance matrix
         cov_matrix_sqrt = jnp.sqrt(cov_matrix)
