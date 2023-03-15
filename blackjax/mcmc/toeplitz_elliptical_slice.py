@@ -23,33 +23,49 @@ from blackjax.util import generate_gaussian_noise
 from blackjax.mcmc.elliptical_slice import EllipSliceState, EllipSliceInfo
 
 
-def kernel(c: Array, mean: Array, shared_hyperparameters=True, N=1, D=1, nu=1):
+def kernel(k: Array, mean: Array, shared_hyperparameters=True, D=1, nu=1):
 
-    ndim = jnp.ndim(c)
+    # Get number of dimensions and N:
+    ndim = jnp.ndim(k)
+    N = k.shape[-1]
 
+    # k is only the first column of a Toeplitz matrix. To sample from this matrix, we need to extend k to its circulant
+    # column. This is described in more detail in Eq. 4.40 in:
+    # Wilson (2014). Covariance kernels for fast automatic pattern discovery and extrapolation with Gaussian processes.
     if ndim == 1 and shared_hyperparameters: # first column of cingulant matrix.
+        c = jnp.concatenate((k, jnp.flip(k)[1:]), axis=0)
         c_tilde_sqrt = jnp.sqrt(jnp.fft.fft(c))
     elif ndim == 2 and not shared_hyperparameters: # c should then be (num_latent, N).
+        c = jnp.concatenate((k, jnp.flip(k)[:, 1:]), axis=1)
         c_tilde_sqrt = jax.vmap(jnp.fft.fft, in_axes=0)(c)
     else:
         raise ValueError('Input c has the wrong number of dimensions. It should be the first column of the circulant '
                          'matrix of K, or two-dimensional if shared_hyperparameters is set to False.')
 
     def momentum_generator(rng_key, position):
-        def generate_gaussian_noise_latent(key, u_i, cov): #TODO: deze aanpassen. we willen toeplitz gebruiken.
-            return generate_gaussian_noise_toeplitz(key, u_i, jnp.zeros(N), cov)
+        def generate_gaussian_noise_latent(key, v_i, cov):
+            return generate_gaussian_noise_toeplitz(key, v_i, mean, cov)
+
+        def generate_gaussian_noise_toeplitz(rng_key: PRNGKey, v_i: Array, mu: Union[float, Array] = 0.0,
+                                             sqrt_c_tilde: Union[float, Array] = 1.0) -> PyTree:
+            return jnp.fft.ifft(sqrt_c_tilde * jnp.fft.fft(v_i))[:N].real
 
         keys = jrnd.split(rng_key, nu * D)
         u = jnp.reshape(position, (nu * D, N))
 
         if ndim == 1 and shared_hyperparameters: # use same covariance for all latent dimensions.
-            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, None))(keys, u, c_tilde_sqrt)
+            v = jrnd.normal(rng_key, shape=(c.shape[-1], D * nu))
+            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 1, None))(keys, v, c_tilde_sqrt)
             return jnp.reshape(res, (nu * D * N), order='F')
+
         elif ndim == 2 and not shared_hyperparameters: # use separate covariance for each latent dimension.
-            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 0, 0))(keys, u, c_tilde_sqrt)
+            v = jrnd.normal(rng_key, shape=(c.shape[-1], D*nu))
+            res = jax.vmap(generate_gaussian_noise_latent, in_axes=(0, 1, 0))(keys, v, c_tilde_sqrt)
             return jnp.reshape(res, (nu * D * N), order='F')
+
         else:
-            return generate_gaussian_noise_toeplitz(rng_key, position, mean, c_tilde_sqrt)
+            v = jrnd.normal(rng_key, shape=(c.shape[-1],))
+            return generate_gaussian_noise_toeplitz(rng_key, v, mean, c_tilde_sqrt)
 
     def one_step(rng_key: PRNGKey, state: EllipSliceState, logdensity_fn: Callable) \
             -> Tuple[EllipSliceState, EllipSliceInfo]:
@@ -57,16 +73,6 @@ def kernel(c: Array, mean: Array, shared_hyperparameters=True, N=1, D=1, nu=1):
         return proposal_generator(rng_key, state)
 
     return one_step
-
-
-def generate_gaussian_noise_toeplitz(rng_key: PRNGKey, position: PyTree, mu: Union[float, Array] = 0.0,
-                                     sqrt_c_tilde: Union[float, Array] = 1.0) -> PyTree:
-    """
-    Based on Eq. 4.40 from https://www.cs.cmu.edu/~andrewgw/andrewgwthesis.pdf.
-    """
-    return jnp.fft.ifft(sqrt_c_tilde * jnp.fft.fft(position)) + mu
-
-
 
 
 def elliptical_proposal(
