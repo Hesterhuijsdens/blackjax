@@ -33,10 +33,10 @@ def kernel(k: Array, mean: Array, shared_hyperparameters=True, D=1, nu=1):
     # column. This is described in more detail in Eq. 4.40 in:
     # Wilson (2014). Covariance kernels for fast automatic pattern discovery and extrapolation with Gaussian processes.
     if ndim == 1 and shared_hyperparameters: # first column of cingulant matrix.
-        c = jnp.concatenate((k, jnp.flip(k)[1:]), axis=0)
+        c = jnp.concatenate((k, jnp.flip(k)[1:-1]), axis=0)
         c_tilde_sqrt = jnp.sqrt(jnp.fft.fft(c))
     elif ndim == 2 and not shared_hyperparameters: # c should then be (num_latent, N).
-        c = jnp.concatenate((k, jnp.flip(k)[:, 1:]), axis=1)
+        c = jnp.concatenate((k, jnp.flip(k)[:, 1:-1]), axis=1)
         c_tilde_sqrt = jax.vmap(jnp.fft.fft, in_axes=0)(c)
     else:
         raise ValueError('Input c has the wrong number of dimensions. It should be the first column of the circulant '
