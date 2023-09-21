@@ -118,7 +118,7 @@ def kernel(logprior_fn: Callable, loglikelihood_fn: Callable, mcmc_step_fn: Call
             state = mcmc_init_fn(position, tempered_logposterior_fn)
 
             def body_fn(state, rng_key):
-                new_state, info = mcmc_step_fn(rng_key, state, loglikelihood_fn, new_lmbda, **mcmc_parameters)
+                new_state, info = mcmc_step_fn(rng_key, state, new_lmbda, **mcmc_parameters)
                 return new_state, info
 
             keys = jax.random.split(rng_key, num_mcmc_steps)
